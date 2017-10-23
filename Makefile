@@ -7,12 +7,13 @@ SCRIPT_SOURCE := https://raw.githubusercontent.com/breather/docker-makefile/mast
 
 # Dynamic variables
 #
-WORKING_DIR           ?= $(shell pwd)
+AWS_PROFILE           ?= default
 BUILD_DATE            ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 CIRCLE_BRANCH         ?= $(shell git rev-parse --abbrev-ref HEAD)
 CIRCLE_BUILD_NUM      ?= local
 CIRCLE_REPOSITORY_URL ?= $(shell git config --get remote.origin.url)
 CIRCLE_SHA1           ?= $(shell git rev-parse HEAD)
+WORKING_DIR           ?= $(shell pwd)
 
 # Optionally include config file
 #
@@ -63,6 +64,22 @@ ifneq (,$(findstring amazonaws.com,$(ORG)))
 else
 	@docker login --username ${DOCKER_USER} --password ${DOCKER_PASS}
 endif
+
+assume-role: ## Assume an aws role and export session credentials
+ifndef AWS_ROLE_ARN
+else
+  CREDENTIALS := $(shell aws sts assume-role \
+    --role-arn ${AWS_ROLE_ARN} \
+    --role-session-name=${NAME} \
+    --query Credentials \
+    --output text)
+  export AWS_ACCESS_KEY_ID     := $(word 1, $(CREDENTIALS))
+  export AWS_SECRET_ACCESS_KEY := $(word 3, $(CREDENTIALS))
+  export AWS_SESSION_TOKEN     := $(word 4, $(CREDENTIALS))
+endif
+
+assume-exec: assume-role ## Assume an aws role and execute COMMAND="cmd args"
+	$(COMMAND)
 
 push: login tag ## Push tagged docker container to repository
 	docker push ${IMG_TAGGED}
