@@ -27,13 +27,14 @@ ORG        ?= breather
 MAINTAINER ?= platform+docker@breather.com
 NAME       ?= $(shell basename $(shell pwd))
 TAG        ?= ${CIRCLE_SHA1}
+TAG_BUILD  ?= ${CIRCLE_SHA1}
 TAG_LATEST ?= latest
 VERSION    ?= 0.0
 
 # Constructed variables
 #
 IMG        ?= ${ORG}/${NAME}
-IMG_BUILD  ?= ${IMG}:${CIRCLE_SHA1}
+IMG_BUILD  ?= ${IMG}:${TAG_BUILD}
 IMG_TAGGED ?= ${IMG}:${TAG}
 IMG_LATEST ?= ${IMG}:${TAG_LATEST}
 
@@ -81,10 +82,13 @@ endif
 assume-exec: assume-role ## Assume an aws role and execute COMMAND="cmd args"
 	$(COMMAND)
 
-push: login tag ## Push tagged docker container to repository
+pull: login ## Pull tagged docker image from repository
+	docker pull ${IMG_TAGGED}
+
+push: login ## Push tagged docker image to repository
 	docker push ${IMG_TAGGED}
 
-push-latest: login tag-latest ## latest docker container to repository
+push-latest: login ## Push latest docker image to repository
 ifeq ($(CIRCLE_BRANCH), master)
 	docker push ${IMG_LATEST}
 endif
