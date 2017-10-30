@@ -78,17 +78,17 @@ help: ## Show this help message.
 assume: ## Assume an aws role and export session credentials
 ifndef AWS_ROLE_ARN
 else
-	CREDENTIALS := $(shell aws sts assume \
-		--role-arn ${AWS_ROLE_ARN} \
-		--role-session-name=${NAME} \
-		--query Credentials \
-		--output text)
-	export AWS_ACCESS_KEY_ID     := $(word 1, $(CREDENTIALS))
-	export AWS_SECRET_ACCESS_KEY := $(word 3, $(CREDENTIALS))
-	export AWS_SESSION_TOKEN     := $(word 4, $(CREDENTIALS))
+  CREDENTIALS := $(shell aws sts assume \
+    --role-arn ${AWS_ROLE_ARN} \
+    --role-session-name=${NAME} \
+    --query Credentials \
+    --output text)
+  export AWS_ACCESS_KEY_ID     := $(word 1, $(CREDENTIALS))
+  export AWS_SECRET_ACCESS_KEY := $(word 3, $(CREDENTIALS))
+  export AWS_SESSION_TOKEN     := $(word 4, $(CREDENTIALS))
 endif
 
-assume-exec: assume ## Assume an aws role and execute COMMAND="cmd args"
+assume.exec: assume ## Assume an aws role and execute COMMAND="cmd args"
 	$(COMMAND)
 
 build: build.target build.image ## Build docker container and optional target
@@ -140,6 +140,9 @@ endif
 
 tag.latest:
 	$(DOCKER_CMD) tag $(IMG_BUILD) $(IMG_LATEST)
+
+print.env:  ## Print current environment
+	@env
 
 print.tags: ## Print current build tag
 	@echo $(TAG_BUILD)
