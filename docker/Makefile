@@ -78,7 +78,7 @@ help: ## Show this help message.
 assume: ## Assume an aws role and export session credentials
 ifndef AWS_ROLE_ARN
 else
-  CREDENTIALS := $(shell aws sts assume \
+  CREDENTIALS := $(shell aws sts assume-role \
     --role-arn ${AWS_ROLE_ARN} \
     --role-session-name=${NAME} \
     --query Credentials \
@@ -121,10 +121,12 @@ ifdef DOCKER_TARGET
 endif
 
 login: ## Login to repository
+ifeq ($(DOCKER_NOLOGIN),)
 ifneq (,$(findstring amazonaws.com,$(ORG)))
 	$$($(AWS_CMD) ecr get-login --no-include-email)
 else
 	@$(DOCKER_CMD) login --username $(DOCKER_USER) --password $(DOCKER_PASS)
+endif
 endif
 
 pull: login ## Pull tagged docker image from repository
@@ -144,7 +146,7 @@ tag.latest:
 print.env:  ## Print current environment
 	@env
 
-print.tags: ## Print current build tag
+print.tag: ## Print current build tag
 	@echo $(TAG_BUILD)
 
 self.upgrade: ## Upgrade this instance of the Makefile
