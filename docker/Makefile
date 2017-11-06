@@ -3,7 +3,8 @@
 .DEFAULT = help
 .PHONY: $(MAKEFILE_LIST)
 SHELL := '/bin/bash'
-SCRIPT_SOURCE := https://raw.githubusercontent.com/breather/docker-makefile/master/Makefile
+SCRIPT_BASE   := https://raw.githubusercontent.com/breather/makefiles
+SCRIPT_SOURCE := $(SCRIPT_BASE)/master/docker/Makefile
 
 # Command variables
 #
