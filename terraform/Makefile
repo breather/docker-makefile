@@ -38,9 +38,10 @@ help: ## Show this help message.
 	$(info )
 	@echo -e "$$(grep -hE '^\S+:.*##' $(MAKEFILE_LIST) | sed -e 's/:.*##\s*/:/' -e 's/^\(.\+\):\(.*\)/\\x1b[36m\1\\x1b[m:\2/' | column -c2 -t -s :)"
 
-assume: ## Assume an aws role and export session credentials
+assume: assume.verify ## Assume an aws role and export session credentials
 ifndef AWS_ROLE_ARN
 else
+  ifndef AWS_SESSION_TOKEN
   CREDENTIALS := $(shell aws sts assume-role \
     --role-arn ${AWS_ROLE_ARN} \
     --role-session-name=${NAME} \
@@ -49,10 +50,19 @@ else
   export AWS_ACCESS_KEY_ID     := $(word 1, $(CREDENTIALS))
   export AWS_SECRET_ACCESS_KEY := $(word 3, $(CREDENTIALS))
   export AWS_SESSION_TOKEN     := $(word 4, $(CREDENTIALS))
+  endif
 endif
 
 assume.exec: assume ## Assume an aws role and execute COMMAND="cmd args"
 	$(COMMAND)
+
+assume.verify:
+ifndef AWS_ENV
+  $(error AWS_ENV is not defined, should be use1dev or use1prod)
+endif
+ifdef AWS_PROFILE
+  $(warning AWS_PROFILE variable is defined, this may be bad)
+endif
 
 activate: ## Activate terraform workspace
 ifndef ENV
@@ -88,38 +98,31 @@ get: ## Update terraform modules
 	@echo "Updating terraform modules"
 	$(TERRAFORM_CMD) get -update
 
-init: ## Initialize terraform state
-ifndef AWS_ENV
-	$(error AWS_ENV is not defined, should be use1dev or use1prod)
-endif
-ifdef AWS_PROFILE
-	$(warning AWS_PROFILE variable is defined, this may be bad)
-endif
+init: assume ## Initialize terraform state
 	@echo
 	@echo "Ensuring required CLI tools exist"
 	aws --version
-	terraform -version
-	@echo
+	$(TERRAFORM_CMD) -version
 	@echo "Initializing terraform state"
-	@make assume.exec COMMAND="$(TERRAFORM_CMD) init \
-		-backend-config=\"acl=private\" \
-		-backend-config=\"bucket=breather-$(AWS_ENV)-terraform\" \
-		-backend-config=\"key=$(AWS_ENV)/$(BACKEND_KEY)\" \
-		-backend-config=\"dynamodb_table=$(AWS_ENV)-terraform\" \
-		-backend-config=\"region=us-east-1\" \
-		-force-copy \
-		-input=false \
-		"
+	$(TERRAFORM_CMD) init \
+  -backend-config="acl=private" \
+  -backend-config="bucket=breather-$(AWS_ENV)-terraform" \
+  -backend-config="key=$(AWS_ENV)/$(BACKEND_KEY)" \
+  -backend-config="dynamodb_table=$(AWS_ENV)-terraform" \
+  -backend-config="region=us-east-1" \
+  -force-copy \
+  -input=false
+	@echo
 	@echo "Your environment: $$($(TERRAFORM_CMD) workspace list | grep '^\*' | awk '{print $$2}')"
 
-plan: format get ## Verify infrastructure changes
+plan: assume format get ## Verify infrastructure changes
 	@echo "Checking Infrastracture"
 	@mkdir -p .tmp || true
-	@make assume.exec COMMAND="$(TERRAFORM_CMD) plan \
-		-parallelism=80 \
-		-refresh=true \
-		-module-depth=-1 \
-		-out .tmp/plan_stg"
+	$(TERRAFORM_CMD) plan \
+  -parallelism=80 \
+  -refresh=true \
+  -module-depth=-1 \
+  -out .tmp/plan_stg
 
 setup: init get
 
