@@ -131,6 +131,6 @@ output: ## Show infrastructure outputs
 	@$(TERRAFORM_CMD) output
 
 self.upgrade: ## Upgrade this instance of the Makefile
-▸ $(WGET_CMD) --unlink -q $(SCRIPT_SOURCE) -O Makefile
+	$(WGET_CMD) --unlink -q $(SCRIPT_SOURCE) -O Makefile
 
 #  vim: set ft=make ts=2 sw=2 noet :
