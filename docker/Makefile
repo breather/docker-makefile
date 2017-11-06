@@ -136,6 +136,9 @@ pull: login ## Pull tagged docker image from repository
 push: login ## Push tagged docker image to repository
 	$(DOCKER_CMD) push $(PUSH_FLAGS) $(IMG_TAGGED)
 
+push.latest:
+	$(DOCKER_CMD) push $(PUSH_FLAGS) $(IMG_LATEST)
+
 tag: ## Tag build image
 ifneq ($(IMG_BUILD),$(IMG_TAGGED))
 	$(DOCKER_CMD) tag $(IMG_BUILD) $(IMG_TAGGED)
