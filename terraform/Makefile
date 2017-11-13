@@ -11,7 +11,6 @@ SCRIPT_SOURCE := $(SCRIPT_BASE)/master/terraform/Makefile
 AWS                    = aws
 AWS_CMD                = $(AWS) $(AWS_FLAGS)
 AWS_FLAGS              = #--profile $(AWS_PROFILE)
-AWS_PROFILE           ?= default
 TERRAFORM              = terraform
 TERRAFORM_CMD          = $(TERRAFORM) $(TERRAFORM_FLAGS)
 TERRAFORM_FLAGS        =
@@ -31,19 +30,40 @@ CNF                   ?= .env.make
 NAME                  ?= terraform
 WORKING_DIR           ?= $(PWD)
 
-# Targets
+# Ensure the presence of required variables
 #
-help: ## Show this help message.
-	$(info Terraform helper)
-	$(info )
-	@echo -e "$$(grep -hE '^\S+:.*##' $(MAKEFILE_LIST) | sed -e 's/:.*##\s*/:/' -e 's/^\(.\+\):\(.*\)/\\x1b[36m\1\\x1b[m:\2/' | column -c2 -t -s :)"
+ifndef AWS_ENV
+  $(error AWS_ENV is not defined, should be use1dev or use1prod)
+endif
 
-assume: assume.verify ## Assume an aws role and export session credentials
-ifndef AWS_ROLE_ARN
-else
+ASSUME_ROLE_PROFILE   ?= $(AWS_ENV)
+ifdef AWS_PROFILE
+ASSUME_ROLE_PROFILE   ?= $(AWS_PROFILE)
+endif
+
+ifdef AWS_ROLE_ARN
+  ASSUME_ROLE           ?= $(AWS_ROLE_ARN) ## TODO: Legacy variable remap
+endif
+
+# Optionally assume an AWS role
+#
+ifndef ASSUME_ROLE
+	# Attempt to detect the ASSUME_ROLE based on the ASSUME_ROLE_PROFILE
+  #
+  ifdef ASSUME_ROLE_PROFILE
+    ASSUME_ROLE := $(shell awk -F"=" -v section="profile ${ASSUME_ROLE_PROFILE}" -v var=role_arn '$$1=="["section"]"{secFound=1}secFound==1 && $$1==var{print $$2; secFound=0}' ~/.aws/config)
+    ifneq ($(ASSUME_ROLE),)
+      ifeq ($(ASSUME_ROLE_PROFILE),$(AWS_PROFILE))
+        override AWS_PROFILE = default
+      endif
+    endif
+  endif
+endif
+
+ifdef ASSUME_ROLE
   ifndef AWS_SESSION_TOKEN
   CREDENTIALS := $(shell aws sts assume-role \
-    --role-arn ${AWS_ROLE_ARN} \
+    --role-arn ${ASSUME_ROLE} \
     --role-session-name=${NAME} \
     --query Credentials \
     --output text)
@@ -53,16 +73,12 @@ else
   endif
 endif
 
-assume.exec: assume ## Assume an aws role and execute COMMAND="cmd args"
-	$(COMMAND)
-
-assume.verify:
-ifndef AWS_ENV
-  $(error AWS_ENV is not defined, should be use1dev or use1prod)
-endif
-ifdef AWS_PROFILE
-  $(warning AWS_PROFILE variable is defined, this may be bad)
-endif
+# Targets
+#
+help: ## Show this help message.
+	$(info Terraform helper)
+	$(info )
+	@echo -e "$$(grep -hE '^\S+:.*##' $(MAKEFILE_LIST) | sed -e 's/:.*##\s*/:/' -e 's/^\(.\+\):\(.*\)/\\x1b[36m\1\\x1b[m:\2/' | column -c2 -t -s :)"
 
 activate: ## Activate terraform workspace
 ifndef ENV
@@ -72,7 +88,7 @@ endif
 
 apply: ## Apply terraform template
 	@echo "Applying changes to Infrastracture"
-	@make assume.exec COMMAND="$(TERRAFORM_CMD) apply -parallelism=80 .tmp/plan_stg"
+	$(TERRAFORM_CMD) apply -parallelism=80 .tmp/plan_stg
 	@make clean
 
 confirm:
@@ -88,7 +104,10 @@ clean: ## Delete temporary files
 destroy: ## Delete terraform stack
 	@echo "Destroying terraform stack"
 	@make confirm
-	@make assume.exec COMMAND="$(TERRAFORM_CMD) destroy -force" \
+	$(TERRAFORM_CMD) destroy -force
+
+exec: ## Execute an arbitrary command, requires -e CMD="command to exec"
+	$(CMD)
 
 format: ## Format terraform files
 	@echo "Formating terraform code"
@@ -98,7 +117,7 @@ get: ## Update terraform modules
 	@echo "Updating terraform modules"
 	$(TERRAFORM_CMD) get -update
 
-init: assume ## Initialize terraform state
+init: ## Initialize terraform state
 	@echo
 	@echo "Ensuring required CLI tools exist"
 	aws --version
@@ -115,7 +134,7 @@ init: assume ## Initialize terraform state
 	@echo
 	@echo "Your environment: $$($(TERRAFORM_CMD) workspace list | grep '^\*' | awk '{print $$2}')"
 
-plan: assume format get ## Verify infrastructure changes
+plan: format get ## Verify infrastructure changes
 	@echo "Checking Infrastracture"
 	@mkdir -p .tmp || true
 	$(TERRAFORM_CMD) plan \
