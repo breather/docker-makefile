@@ -6,30 +6,33 @@ SHELL := '/bin/bash'
 SCRIPT_BASE   := https://raw.githubusercontent.com/breather/makefiles
 SCRIPT_SOURCE := $(SCRIPT_BASE)/master/docker/Makefile
 
-# Command variables
+# Include config file
 #
-AWS                    = aws
-AWS_CMD                = $(AWS) $(AWS_FLAGS)
-AWS_FLAGS              = #--profile $(AWS_PROFILE)
-AWS_PROFILE           ?= default
-COMPOSE                = docker-compose
-COMPOSE_CMD            = $(COMPOSE) -f $(COMPOSE_FILE) $(COMPOSE_FLAGS)
-COMPOSE_FILE           = docker-compose
-COMPOSE_FLAGS          =
-DOCKER                 = docker
-DOCKER_CMD             = $(DOCKER) $(DOCKER_FLAGS)
-DOCKER_FILE           ?= Dockerfile
-DOCKER_FLAGS           =
-WGET                   = wget
-WGET_CMD               = $(WGET) $(WGET_FLAGS)
-WGET_FLAGS             =
-
-# Optionally include config file
-#
-CNF ?= .env.make
+CNF   ?= .env.make
 -include ${CNF}
 -include ${CNF}.local
--include ${WORKING_DIR}/Makefile.local
+-include Makefile.local
+
+# Command variables
+#
+AWS_PROFILE           ?= default
+
+ASSUME                ?= $(shell which assume-role)
+ASSUME_CMD            ?= $(ASSUME) $(AWS_PROFILE)
+AWS                   ?= $(shell which aws)
+AWS_CMD               ?= $(AWS) $(AWS_FLAGS)
+AWS_FLAGS             ?= --profile $(AWS_PROFILE)
+COMPOSE               ?= $(shell which docker-compose)
+COMPOSE_CMD           ?= $(COMPOSE) -f $(COMPOSE_FILE) $(COMPOSE_FLAGS)
+COMPOSE_FILE          ?= docker-compose.yml
+COMPOSE_FLAGS         ?=
+DOCKER                ?= $(shell which docker)
+DOCKER_CMD            ?= $(DOCKER) $(DOCKER_FLAGS)
+DOCKER_FILE           ?= Dockerfile
+DOCKER_FLAGS          ?=
+WGET                  ?= $(shell which wget)
+WGET_CMD              ?= $(WGET) $(WGET_FLAGS)
+WGET_FLAGS            ?=
 
 # Dynamic variables
 #
@@ -48,7 +51,7 @@ endif
 
 ifneq ($(wildcard $(WORKING_DIR)/package.json),)
   VERSION ?= $(shell awk '/"version":/{gsub(/("|",)/,"",$$2);print $$2};' \
-                    package.json)-$(CIRCLE_BUILD_NUM)
+                     package.json)-$(CIRCLE_BUILD_NUM)
 endif
 
 VERSION   ?= 0.0-$(CIRCLE_BUILD_NUM)
@@ -76,21 +79,8 @@ help: ## Show this help message.
 	$(info )
 	@echo -e "$$(grep -hE '^\S+:.*##' $(MAKEFILE_LIST) | sed -e 's/:.*##\s*/:/' -e 's/^\(.\+\):\(.*\)/\\x1b[36m\1\\x1b[m:\2/' | column -c2 -t -s :)"
 
-assume: ## Assume an aws role and export session credentials
-ifndef AWS_ROLE_ARN
-else
-  CREDENTIALS := $(shell aws sts assume-role \
-    --role-arn ${AWS_ROLE_ARN} \
-    --role-session-name=${NAME} \
-    --query Credentials \
-    --output text)
-  export AWS_ACCESS_KEY_ID     := $(word 1, $(CREDENTIALS))
-  export AWS_SECRET_ACCESS_KEY := $(word 3, $(CREDENTIALS))
-  export AWS_SESSION_TOKEN     := $(word 4, $(CREDENTIALS))
-endif
-
-assume.exec: assume ## Assume an aws role and execute COMMAND="cmd args"
-	$(COMMAND)
+exec: ## Assume an aws role and execute CMD="cmd args"
+	$(ASSUME_CMD) $(CMD)
 
 build: build.target build.image ## Build docker container and optional target
 
@@ -120,6 +110,9 @@ ifdef DOCKER_TARGET
 		$(BUILD_ARGS) \
 		$(WORKING_DIR)
 endif
+
+compose: ## Wrap docker-compose with assume-role, requires -e COMPOSE_FLAGS=""
+	$(ASSUME_CMD) $(COMPOSE_CMD)
 
 login: ## Login to repository
 ifeq ($(DOCKER_NOLOGIN),)

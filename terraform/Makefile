@@ -6,78 +6,83 @@ SHELL := '/bin/bash'
 SCRIPT_BASE   := https://raw.githubusercontent.com/breather/makefiles
 SCRIPT_SOURCE := $(SCRIPT_BASE)/master/terraform/Makefile
 
-# Command variables
+# Include config file
 #
-AWS                    = aws
-AWS_CMD                = $(AWS) $(AWS_FLAGS)
-AWS_FLAGS              = #--profile $(AWS_PROFILE)
-TERRAFORM              = terraform
-TERRAFORM_CMD          = $(TERRAFORM) $(TERRAFORM_FLAGS)
-TERRAFORM_FLAGS        =
-WGET                   = wget
-WGET_CMD               = $(WGET) $(WGET_FLAGS)
-WGET_FLAGS             =
-
-# Optionally include config file
-#
-CNF                   ?= .env.make
+CNF   ?= .env.make
 -include ${CNF}
 -include ${CNF}.local
--include $(shell pwd)/Makefile.local
+-include Makefile.local
 
-# Overwritable variables
+# Command variables
 #
-NAME                  ?= terraform
-WORKING_DIR           ?= $(PWD)
+AWS_PROFILE           ?= $(AWS_ENV)
+
+ASSUME                ?= $(shell which assume-role)
+ASSUME_CMD            ?= $(ASSUME) $(AWS_PROFILE)
+AWS                   ?= $(shell which aws)
+AWS_CMD               ?= $(AWS) $(AWS_FLAGS)
+AWS_FLAGS             ?= --profile $(AWS_PROFILE)
+TERRAFORM             ?= $(shell which terraform)
+TERRAFORM_CMD         ?= $(ASSUME_CMD) $(TERRAFORM) $(TERRAFORM_FLAGS)
+TERRAFORM_FLAGS       ?=
+WGET                  ?= $(shell which wget)
+WGET_CMD              ?= $(WGET) $(WGET_FLAGS)
+WGET_FLAGS            ?=
+
+# Define usage / help
+#
+define USAGE
+echo "NAME"
+echo "  Terraform makefile"
+echo
+echo "SYNOPSIS"
+echo "  make [subcommands] [-e VAR=VALUE]"
+echo
+echo "DESCRIPTION"
+echo "  This terraform makefile wraps common workflows so as to simplify them."
+echo
+echo "CONFIGURATION"
+echo "  Configurations may be provided in the follow locations, in order of precedence:"
+echo "  - commandline argument: make -e VAR=VALUE"
+echo "  - environment variable"
+echo "  - ./Makefile.local"
+echo "  - ./.env.make.local"
+echo "  - ./.env.make"
+echo
+echo "AWS Profile"
+echo "  Make will wrap all calls to 'terraform' or made with the 'exec' target"
+echo "  with an assume-role utilizing your AWS_PROFILE."
+echo
+echo "  If 'AWS_PROFILE' is undefined, it will default to 'AWS_ENV' which should always"
+echo "  be one of 'use1dev1' or 'use1prod' to reflect the execution environment."
+echo
+echo "SUBCOMMANDS"
+endef
 
 # Ensure the presence of required variables
 #
-ifndef AWS_ENV
-  $(error AWS_ENV is not defined, should be use1dev or use1prod)
+ifeq ($(ASSUME),)
+  $(info  command `assume-role` is missing)
+  $(info  install it via `brew install remind101/formulae/assume-role`)
+  $(error missing dependencies)
 endif
 
-ASSUME_ROLE_PROFILE   ?= $(AWS_ENV)
-ifdef AWS_PROFILE
-ASSUME_ROLE_PROFILE   ?= $(AWS_PROFILE)
+ifeq ($(AWS_ENV),)
+  $(info variable `AWS_ENV` is not defined, should be use1dev or use1prod)
+  $(error missing dependencies)
 endif
 
-ifdef AWS_ROLE_ARN
-  ASSUME_ROLE           ?= $(AWS_ROLE_ARN) ## TODO: Legacy variable remap
-endif
-
-# Optionally assume an AWS role
-#
-ifndef ASSUME_ROLE
-	# Attempt to detect the ASSUME_ROLE based on the ASSUME_ROLE_PROFILE
-  #
-  ifdef ASSUME_ROLE_PROFILE
-    ASSUME_ROLE := $(shell awk -F"=" -v section="profile ${ASSUME_ROLE_PROFILE}" -v var=role_arn '$$1=="["section"]"{secFound=1}secFound==1 && $$1==var{print $$2; secFound=0}' ~/.aws/config)
-    ifneq ($(ASSUME_ROLE),)
-      ifeq ($(ASSUME_ROLE_PROFILE),$(AWS_PROFILE))
-        override AWS_PROFILE = default
-      endif
-    endif
-  endif
-endif
-
-ifdef ASSUME_ROLE
-  ifndef AWS_SESSION_TOKEN
-  CREDENTIALS := $(shell aws sts assume-role \
-    --role-arn ${ASSUME_ROLE} \
-    --role-session-name=${NAME} \
-    --query Credentials \
-    --output text)
-  export AWS_ACCESS_KEY_ID     := $(word 1, $(CREDENTIALS))
-  export AWS_SECRET_ACCESS_KEY := $(word 3, $(CREDENTIALS))
-  export AWS_SESSION_TOKEN     := $(word 4, $(CREDENTIALS))
-  endif
+ifeq ($(TERRAFORM),)
+  $(info  command `terraform` is missing)
+  $(info  install it via `brew install terraform`)
+  $(error missing dependencies)
 endif
 
 # Targets
 #
+
 help: ## Show this help message.
-	$(info Terraform helper)
-	$(info )
+	@$(USAGE)
 	@echo -e "$$(grep -hE '^\S+:.*##' $(MAKEFILE_LIST) | sed -e 's/:.*##\s*/:/' -e 's/^\(.\+\):\(.*\)/\\x1b[36m\1\\x1b[m:\2/' | column -c2 -t -s :)"
 
 activate: ## Activate terraform workspace
@@ -107,7 +112,7 @@ destroy: ## Delete terraform stack
 	$(TERRAFORM_CMD) destroy -force
 
 exec: ## Execute an arbitrary command, requires -e CMD="command to exec"
-	$(CMD)
+	$(ASSUME_CMD) $(CMD)
 
 format: ## Format terraform files
 	@echo "Formating terraform code"
