@@ -15,7 +15,7 @@ CNF   ?= .env.make
 
 # Command variables
 #
-AWS_PROFILE           ?= $(AWS_ENV)
+AWS_PROFILE           ?= $(ENV)
 
 ASSUME                ?= $(shell which assume-role)
 ASSUME_CMD            ?= $(ASSUME) $(AWS_PROFILE)
@@ -28,6 +28,9 @@ TERRAFORM_FLAGS       ?=
 WGET                  ?= $(shell which wget)
 WGET_CMD              ?= $(WGET) $(WGET_FLAGS)
 WGET_FLAGS            ?=
+
+BACKEND_BUCKET        ?= "breather-use1prod-terraform"
+BACKEND_TABLE         ?= "terraform"
 
 # Define usage / help
 #
@@ -49,11 +52,15 @@ echo "  - ./Makefile.local"
 echo "  - ./.env.make.local"
 echo "  - ./.env.make"
 echo
-echo "AWS Profile"
+echo "  Although many configuration parameters are available (see source), only"
+echo "  the options below should be used in day to day operations:"
+echo "  - -e ENV=<environment_name>: Manage terraform in the named environment"
+echo
+echo "AUTHENTICATION"
 echo "  Make will wrap all calls to 'terraform' or made with the 'exec' target"
 echo "  with an assume-role utilizing your AWS_PROFILE."
 echo
-echo "  If 'AWS_PROFILE' is undefined, it will default to 'AWS_ENV' which should always"
+echo "  If 'AWS_PROFILE' is undefined, it will default to 'ENV' which should always"
 echo "  be one of 'use1dev1' or 'use1prod' to reflect the execution environment."
 echo
 echo "SUBCOMMANDS"
@@ -67,8 +74,8 @@ ifeq ($(ASSUME),)
   $(error missing dependencies)
 endif
 
-ifeq ($(AWS_ENV),)
-  $(info variable `AWS_ENV` is not defined, should be use1dev or use1prod)
+ifeq ($(ENV),)
+  $(info variable `ENV` is not defined, should be use1dev or use1prod)
   $(error missing dependencies)
 endif
 
@@ -86,12 +93,19 @@ help: ## Show this help message.
 	@echo -e "$$(grep -hE '^\S+:.*##' $(MAKEFILE_LIST) | sed -e 's/:.*##\s*/:/' -e 's/^\(.\+\):\(.*\)/\\x1b[36m\1\\x1b[m:\2/' | column -c2 -t -s :)"
 
 activate: ## Activate terraform workspace
-ifndef ENV
-	$(error "ENV was not set")
-endif
+	@echo
+	@echo "Activating workspace $(ENV)"
 	$(TERRAFORM_CMD) workspace select $(ENV)
 
 apply: ## Apply terraform template
+	@echo
+	@{ \
+		TFENV=$$(cat .terraform/environment); \
+		if [ "$${TFENV}" != "$(ENV)" ]; then \
+			echo "The value of ENV used for plan and apply differ"; \
+			exit 1; \
+		fi; \
+	}
 	@echo "Applying changes to Infrastracture"
 	$(TERRAFORM_CMD) apply -parallelism=80 .tmp/plan_stg
 	@make clean
@@ -107,6 +121,7 @@ clean: ## Delete temporary files
 	rm -f .tmp/plan_stg #$(TERRAFORM_CMD).tfstate*
 
 destroy: ## Delete terraform stack
+	@echo
 	@echo "Destroying terraform stack"
 	@make confirm
 	$(TERRAFORM_CMD) destroy -force
@@ -115,43 +130,57 @@ exec: ## Execute an arbitrary command, requires -e CMD="command to exec"
 	$(ASSUME_CMD) $(CMD)
 
 format: ## Format terraform files
+	@echo
 	@echo "Formating terraform code"
 	$(TERRAFORM_CMD) fmt
 
 get: ## Update terraform modules
+	@echo
 	@echo "Updating terraform modules"
 	$(TERRAFORM_CMD) get -update
+	$(TERRAFORM_CMD) workspace select $(ENV)
 
 init: ## Initialize terraform state
-	@echo
+	@{ \
+		[ -f .terraform/terraform.tfstate ] \
+		&& $(TERRAFORM_CMD) workspace new $(ENV) \
+		|| true; \
+	}
 	@echo "Ensuring required CLI tools exist"
+	@echo
 	aws --version
 	$(TERRAFORM_CMD) -version
 	@echo "Initializing terraform state"
+	@echo
 	$(TERRAFORM_CMD) init \
   -backend-config="acl=private" \
-  -backend-config="bucket=breather-$(AWS_ENV)-terraform" \
-  -backend-config="key=$(AWS_ENV)/$(BACKEND_KEY)" \
-  -backend-config="dynamodb_table=$(AWS_ENV)-terraform" \
+  -backend-config="bucket=$(BACKEND_BUCKET)" \
+  -backend-config="dynamodb_table=$(BACKEND_TABLE)" \
+  -backend-config="key=$(BACKEND_KEY)" \
+  -backend-config="workspace_key_prefix=workspace" \
   -backend-config="region=us-east-1" \
   -force-copy \
   -input=false
 	@echo
-	@echo "Your environment: $$($(TERRAFORM_CMD) workspace list | grep '^\*' | awk '{print $$2}')"
+	@echo "Configuring workspace environment"
+	@echo
+	$(TERRAFORM_CMD) workspace new $(ENV) || true
 
-plan: format get ## Verify infrastructure changes
+plan: activate format get ## Verify infrastructure changes
+	@echo
 	@echo "Checking Infrastracture"
 	@mkdir -p .tmp || true
 	$(TERRAFORM_CMD) plan \
+  -module-depth=-1 \
+  -out .tmp/plan_stg \
   -parallelism=80 \
   -refresh=true \
-  -module-depth=-1 \
-  -out .tmp/plan_stg
+  -var-file config/default.tfvars \
+  -var-file config/$(ENV).tfvars
 
 setup: init get
 
 show: ## Show infrastructure change plan
-	@echo "Showing plan to apply"
 	$(TERRAFORM_CMD) show .tmp/plan_stg
 
 output: ## Show infrastructure outputs
