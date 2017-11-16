@@ -95,19 +95,16 @@ help: ## Show this help message.
 activate: ## Activate terraform workspace
 	@echo
 	@echo "Activating workspace $(ENV)"
-	$(TERRAFORM_CMD) workspace select $(ENV)
-
-apply: ## Apply terraform template
-	@echo
 	@{ \
-		TFENV=$$(cat .terraform/environment); \
-		if [ "$${TFENV}" != "$(ENV)" ]; then \
-			echo "The value of ENV used for plan and apply differ"; \
-			exit 1; \
+		if [ "$$(cat .terraform/environment | true)" == "$(ENV)" ]; then \
+			$(TERRAFORM_CMD) workspace select $(ENV); \
 		fi; \
 	}
+
+apply: activate ## Apply terraform template
+	@echo
 	@echo "Applying changes to Infrastracture"
-	$(TERRAFORM_CMD) apply -parallelism=80 .tmp/plan_stg
+	$(TERRAFORM_CMD) apply -parallelism=80 .tmp/plan.$(ENV)
 	@make clean
 
 confirm:
@@ -118,7 +115,7 @@ confirm:
 	fi
 
 clean: ## Delete temporary files
-	rm -f .tmp/plan_stg #$(TERRAFORM_CMD).tfstate*
+	rm -f .tmp/plan.*
 
 destroy: ## Delete terraform stack
 	@echo
@@ -172,7 +169,7 @@ plan: activate format get ## Verify infrastructure changes
 	@mkdir -p .tmp || true
 	$(TERRAFORM_CMD) plan \
   -module-depth=-1 \
-  -out .tmp/plan_stg \
+  -out .tmp/plan.$(ENV) \
   -parallelism=80 \
   -refresh=true \
   -var-file config/default.tfvars \
@@ -181,7 +178,7 @@ plan: activate format get ## Verify infrastructure changes
 setup: init get
 
 show: ## Show infrastructure change plan
-	$(TERRAFORM_CMD) show .tmp/plan_stg
+	$(TERRAFORM_CMD) show .tmp/plan.$(ENV)
 
 output: ## Show infrastructure outputs
 	@$(TERRAFORM_CMD) output
