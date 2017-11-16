@@ -96,7 +96,7 @@ activate: ## Activate terraform workspace
 	@echo
 	@echo "Activating workspace $(ENV)"
 	@{ \
-		if [ "$$(cat .terraform/environment | true)" == "$(ENV)" ]; then \
+		if [ "$$(cat .terraform/environment | true)" != "$(ENV)" ]; then \
 			$(TERRAFORM_CMD) workspace select $(ENV); \
 		fi; \
 	}
@@ -179,6 +179,12 @@ setup: init get
 
 show: ## Show infrastructure change plan
 	$(TERRAFORM_CMD) show .tmp/plan.$(ENV)
+
+state-list: activate ## List terraform resources
+	$(TERRAFORM_CMD) state list
+
+state-show: activate ## Show terraform resource, -e ID="XXX"
+	$(TERRAFORM_CMD) state show $(ID)
 
 output: ## Show infrastructure outputs
 	@$(TERRAFORM_CMD) output
