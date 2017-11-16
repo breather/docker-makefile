@@ -121,7 +121,9 @@ destroy: ## Delete terraform stack
 	@echo
 	@echo "Destroying terraform stack"
 	@make confirm
-	$(TERRAFORM_CMD) destroy -force
+	$(TERRAFORM_CMD) destroy -force \
+	-var-file config/default.tfvars \
+	-var-file config/$(ENV).tfvars
 
 exec: ## Execute an arbitrary command, requires -e CMD="command to exec"
 	$(ASSUME_CMD) $(CMD)
