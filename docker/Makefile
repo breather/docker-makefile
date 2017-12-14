@@ -21,7 +21,9 @@ ASSUME                ?= $(shell which assume-role)
 ASSUME_CMD            ?= $(ASSUME) $(AWS_PROFILE)
 AWS                   ?= $(shell which aws)
 AWS_CMD               ?= $(AWS) $(AWS_FLAGS)
-AWS_FLAGS             ?= --profile $(AWS_PROFILE)
+ifneq ($(AWS_PROFILE),default)
+  AWS_FLAGS             ?= --profile $(AWS_PROFILE)
+endif
 COMPOSE               ?= $(shell which docker-compose)
 COMPOSE_CMD           ?= $(COMPOSE) -f $(COMPOSE_FILE) $(COMPOSE_FLAGS)
 COMPOSE_FILE          ?= docker-compose.yml
