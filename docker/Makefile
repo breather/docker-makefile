@@ -47,13 +47,10 @@ WORKING_DIR           ?= $(PWD)
 
 # Version detection
 #
-ifneq ($(wildcard $(WORKING_DIR)/VERSION),)
-  VERSION ?= $(shell cat $(WORKING_DIR)/VERSION)-$(CIRCLE_BUILD_NUM)
-endif
+VERSION_FILE          ?= $(WORKING_DIR)/VERSION
 
-ifneq ($(wildcard $(WORKING_DIR)/package.json),)
-  VERSION ?= $(shell awk '/"version":/{gsub(/("|",)/,"",$$2);print $$2};' \
-                     package.json)-$(CIRCLE_BUILD_NUM)
+ifneq ($(wildcard $(VERSION_FILE),)
+  VERSION ?= $(shell cat $(VERSION_FILE)-$(CIRCLE_BUILD_NUM)
 endif
 
 VERSION   ?= 0.0-$(CIRCLE_BUILD_NUM)
@@ -71,6 +68,7 @@ TAG_LATEST            ?= latest
 #
 IMG                   ?= $(ORG)/$(NAME)
 IMG_BUILD             ?= $(IMG):$(TAG_BUILD)
+IMG_CACHE             ?= $(IMG_BUILD) $(IMG_BUILD)-$(DOCKER_TARGET)
 IMG_TAGGED            ?= $(IMG):$(TAG)
 IMG_LATEST            ?= $(IMG):$(TAG_LATEST)
 
@@ -88,8 +86,7 @@ build: build.target build.image ## Build docker container and optional target
 
 build.image: ## Build docker container
 	cd $(WORKING_DIR); $(DOCKER_CMD) build \
-		--cache-from $(IMG_BUILD) \
-		--cache-from $(IMG_BUILD)-$(DOCKER_TARGET) \
+		$(foreach var,$(IMG_CACHE),--cache-from $(var))
 		--file $(DOCKER_FILE) \
 		--label maintainer=$(MAINTAINER) \
 		--label org.label-schema.build-date=$(BUILD_DATE) \
@@ -105,7 +102,7 @@ build.image: ## Build docker container
 build.target: ## Build docker target if defined
 ifdef DOCKER_TARGET
 	cd $(WORKING_DIR); $(DOCKER_CMD) build \
-		--cache-from $(IMG_BUILD)-$(DOCKER_TARGET) \
+		$(foreach var,$(IMG_CACHE),--cache-from $(var))
 		--file $(DOCKER_FILE) \
 		--tag $(IMG_BUILD)-$(DOCKER_TARGET) \
 		--target $(DOCKER_TARGET) \
