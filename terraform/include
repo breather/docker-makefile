@@ -1,0 +1,193 @@
+MAKEFLAGS       += --warn-undefined-variables
+SHELL           := bash
+.SHELLFLAGS     := -eu -o pipefail -c
+.DEFAULT_GOAL   := help
+.DELETE_ON_ERROR:
+.SUFFIXES:
+
+
+-include $(PWD)/.*.mk
+
+
+ASSUME          ?= $(ASSUME_CMD) $(AWS_PROFILE)
+ASSUME_CMD      ?= assume-role
+AWS_PROFILE     ?= $(TF_ENV)
+
+TERRAFORM       ?= $(ASSUME) $(TERRAFORM_CMD)
+TERRAFORM_CMD   ?= terraform
+
+TF_CONFIG_DIR   ?= config
+TF_ENV          ?= use1dev
+TF_ENV_CURRENT   = $(shell cat .terraform/workspace 2> /dev/null || echo)
+TF_STATE_BUCKET ?= breather-use1prod-terraform
+TF_STATE_TABLE  ?= terraform
+TF_STATE_PREFIX ?= workspace
+TF_STATE_REGION ?= us-east-1
+
+
+comma := ,
+empty :=
+space := $(empty) $(empty)
+
+
+ifeq ($(shell which $(ASSUME_CMD)),)
+$(info Required command is not installed: $(ASSUME_CMD))
+$(info - OSX     brew install remind101/formulae/assume-role)
+$(info - Linux   visit https://github.com/remind101/assume-role/releases)
+$(error Exiting)
+endif
+
+ifeq ($(shell which $(TERRAFORM_CMD)),)
+	$(info Required command is not installed: $(TERRAFORM_CMD))
+	$(info - OSX     brew install terraform)
+	$(info - Linux   visit https://www.terraform.io/downloads.html)
+	$(error Exiting)
+endif
+
+ifneq ($(TF_ENV_CURRENT),$(TF_ENV))
+.terraform/workspace: clean
+endif
+
+
+.PHONY: setup
+setup: ## Verify workstation requirements
+	@if ! which $(ASSUME_CMD) > /dev/null; then \
+		echo The 'assume-role' command must be installed; \
+		echo - OSX : brew install remind101/formulae/assume-role; \
+		echo - Linux : https://github.com/remind101/assume-role/releases; \
+	fi
+	@if ! which $(TERRAFORM_CMD) > /dev/null; then \
+		echo The 'terraform' command must be installed; \
+		echo - OSX : brew install terraform; \
+		echo - Linux : https://www.terraform.io/downloads.html; \
+	fi
+
+
+.PHONY: help
+help:
+	@echo Terraform make file
+	@echo
+	@echo Variables
+	@printf "\033[36m%-20s\033[0m %s\n" AWS_PROFILE "aws profile to assume"
+	@printf "\033[36m%-20s\033[0m %s\n" "- current" "  $(AWS_PROFILE)"
+	@printf "\033[36m%-20s\033[0m %s\n" "- default" "  TF_ENV"
+	@printf "\033[36m%-20s\033[0m %s\n" TF_ENV "environment to target"
+	@printf "\033[36m%-20s\033[0m %s\n" "- current" "  $(TF_ENV)"
+	@printf "\033[36m%-20s\033[0m %s\n" "- allowed" "  use1dev or use1prod"
+	@printf "\033[36m%-20s\033[0m %s\n" TF_STATE_KEY "terraform state path"
+	@printf "\033[36m%-20s\033[0m %s\n" "- current" "  $(TF_STATE_KEY)"
+	@echo
+	@echo Targets:
+	@grep -hE '^[a-zA-Z_-]+(.%)?:.*?## .*$$' $(MAKEFILE_LIST) | \
+		sort | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
+
+.PHONY: .FORCE
+.FORCE: # Dummy target used to force run
+
+
+.PHONY: all
+all: apply
+
+.PHONY: apply
+apply: plan ## Builds or changes infrastructure
+	$(TERRAFORM) apply \
+	-parallelism=80 \
+	.terraform/plan.$(TF_ENV)
+	@make clean
+
+.PHONY: check
+check: format validate ## Lints and validates terraform files
+
+.PHONY: clean
+clean: ## Cleans the working environment of temporary files
+	@rm -f .terraform/workspace
+	@rm -f .terraform/plan.*
+
+.PHONY: destroy
+destroy: ## Destroy Terraform-managed infrastructure
+	@read -r -t 5 -p "Do you wish to continue (timeout 5s) [y/n]: " CONTINUE; \
+	if [ ! $$CONTINUE == "y" ] || [ -z $$CONTINUE ]; then \
+		echo "Aborting" ; \
+		exit 1; \
+	fi
+	$(TERRAFORM) destroy \
+	-var-file $(TF_CONFIG_DIR)/default.tfvars \
+	-var-file $(TF_CONFIG_DIR)/$(TF_ENV).tfvars
+
+.PHONY: format
+format: ## Rewrites config files to canonical format
+	@$(TERRAFORM) fmt
+
+inspect.%: .FORCE # Inspects the value of variable within Makefile
+	@echo $($*)
+
+.PHONY: list
+list: ## List resource identifiers found within state file
+	$(TERRAFORM) state list
+
+.PHONY: output
+output: ## Read all output from a state file
+	$(TERRAFORM) output
+
+output.%: ## Read an output from a state file
+	$(TERRAFORM) output -module=$*
+
+.PHONY: plan ## Generate and show an execution plan
+plan: clean update check .terraform/plan.$(TF_ENV)
+
+.PHONY: reset
+reset: clean ## Reset terraform temporary files
+	@rm -fr .terraform
+
+.PHONY: show
+show: ## Inspect Terraform state or plan
+	@$(TERRAFORM) show .terraform/plan.$(TF_ENV)
+
+show.%: .FORCE ## Show a resource in the state
+	@$(TERRAFORM) state show $*
+
+.PHONY: update
+update: ## Download and install modules for the configuration
+	@$(TERRAFORM_CMD) get -update=true > /dev/null
+
+.PHONY: validate
+validate: ## Validates the Terraform files
+	@$(TERRAFORM_CMD) validate \
+	-var-file $(TF_CONFIG_DIR)/default.tfvars \
+	-var-file $(TF_CONFIG_DIR)/$(TF_ENV).tfvars
+
+
+.terraform/workspace: .terraform/space.$(TF_ENV)
+	@echo $(TF_ENV) > .terraform/workspace;
+	$(TERRAFORM) workspace select $(TF_ENV);
+	$(eval TF_ENV_CURRENT=$(TF_ENV))
+
+.terraform/space.%: .terraform/terraform.tfstate
+	@if ! $(TERRAFORM) workspace list | grep -q $*; then \
+		$(TERRAFORM) workspace new $*; \
+	fi; \
+	touch .terraform/space.$*; \
+
+.terraform/terraform.tfstate:
+	$(TERRAFORM) init \
+	-backend-config="acl=private" \
+	-backend-config="bucket=$(TF_STATE_BUCKET)" \
+	-backend-config="dynamodb_table=$(TF_STATE_TABLE)" \
+	-backend-config="key=$(TF_STATE_KEY)" \
+	-backend-config="workspace_key_prefix=$(TF_STATE_PREFIX)" \
+	-backend-config="region=$(TF_STATE_REGION)" \
+	-force-copy \
+	-input=false
+
+.terraform/plan.%: .terraform/workspace
+	$(TERRAFORM) plan \
+	-module-depth=-1 \
+	-out .terraform/plan.$* \
+	-parallelism=80 \
+	-refresh=true \
+	-var-file $(TF_CONFIG_DIR)/default.tfvars \
+	-var-file $(TF_CONFIG_DIR)/$*.tfvars
+
+#  vim: set ft=make ts=2 sw=2 noet :

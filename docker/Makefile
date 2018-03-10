@@ -5,13 +5,16 @@
 SHELL := '/bin/bash'
 SCRIPT_BASE   := https://raw.githubusercontent.com/breather/makefiles
 SCRIPT_SOURCE := $(SCRIPT_BASE)/master/docker/Makefile
+MAKEFILE_DIR  := $(dir $(realpath $(firstword $(MAKEFILE_LIST))))
 
 # Include config file
 #
 CNF   ?= .env.make
+-include ${MAKEFILE_DIR}/Makefile.local
+-include ${MAKEFILE_DIR}/${CNF}
+-include ${MAKEFILE_DIR}/${CNF}.local
 -include ${CNF}
 -include ${CNF}.local
--include Makefile.local
 
 # Command variables
 #
@@ -44,33 +47,42 @@ CIRCLE_BUILD_NUM      ?= 0
 CIRCLE_REPOSITORY_URL ?= $(shell git config --get remote.origin.url)
 CIRCLE_SHA1            = $(shell git rev-parse HEAD)
 WORKING_DIR           ?= $(PWD)
+VERSION_FILE          ?= $(WORKING_DIR)/VERSION
 
 # Version detection
 #
-VERSION_FILE          ?= $(WORKING_DIR)/VERSION
-
-ifneq ($(wildcard $(VERSION_FILE),)
-  VERSION ?= $(shell cat $(VERSION_FILE)-$(CIRCLE_BUILD_NUM)
+ifneq ($(wildcard $(VERSION_FILE)),)
+  VERSION             ?= $(shell cat $(VERSION_FILE))-$(CIRCLE_BUILD_NUM)
+  VERSION_LATEST      ?= $(VERSION)-latest
 endif
 
-VERSION   ?= 0.0-$(CIRCLE_BUILD_NUM)
+ifneq ($(wildcard $(WORKING_DIR)/package.json),)
+  PKG_VERS            ?= $(shell jq -r .version $(WORKING_DIR)/package.json)
+  VERSION             ?= $(PKG_VERS)-$(CIRCLE_BUILD_NUM)
+  VERSION_LATEST      ?= $(PKG_VERS)-latest
+endif
+
+VERSION               ?= 0.0-$(CIRCLE_BUILD_NUM)
+VERSION_LATEST        ?= latest
 
 # Overwritable variables
 #
 ORG                   ?= breather
 MAINTAINER            ?= platform+docker@breather.com
 NAME                  ?= $(basename $(PWD))
+TAG_PREFIX            ?=
 TAG                   ?= $(VERSION)
 TAG_BUILD             ?= $(CIRCLE_SHA1)
-TAG_LATEST            ?= latest
+TAG_LATEST            ?= $(VERSION_LATEST)
 
 # Constructed variables
 #
 IMG                   ?= $(ORG)/$(NAME)
-IMG_BUILD             ?= $(IMG):$(TAG_BUILD)
-IMG_CACHE             ?= $(IMG_BUILD) $(IMG_BUILD)-$(DOCKER_TARGET)
-IMG_TAGGED            ?= $(IMG):$(TAG)
-IMG_LATEST            ?= $(IMG):$(TAG_LATEST)
+IMG_BUILD             ?= $(IMG):$(TAG_PREFIX)$(TAG_BUILD)
+IMG_CACHE             ?= $(IMG_BUILD) $(IMG_BUILDER) $(IMG_LATEST)
+IMG_TAGGED            ?= $(IMG):$(TAG_PREFIX)$(TAG)
+IMG_TARGET            ?= $(IMG_BUILD)-$(DOCKER_TARGET)
+IMG_LATEST            ?= $(IMG):$(TAG_PREFIX)$(TAG_LATEST)
 
 # Targets
 #
@@ -86,7 +98,7 @@ build: build.target build.image ## Build docker container and optional target
 
 build.image: ## Build docker container
 	cd $(WORKING_DIR); $(DOCKER_CMD) build \
-		$(foreach var,$(IMG_CACHE),--cache-from $(var))
+		$(foreach var,$(IMG_CACHE),--cache-from $(var)) \
 		--file $(DOCKER_FILE) \
 		--label maintainer=$(MAINTAINER) \
 		--label org.label-schema.build-date=$(BUILD_DATE) \
@@ -102,9 +114,9 @@ build.image: ## Build docker container
 build.target: ## Build docker target if defined
 ifdef DOCKER_TARGET
 	cd $(WORKING_DIR); $(DOCKER_CMD) build \
-		$(foreach var,$(IMG_CACHE),--cache-from $(var))
+		$(foreach var,$(IMG_CACHE),--cache-from $(var)) \
 		--file $(DOCKER_FILE) \
-		--tag $(IMG_BUILD)-$(DOCKER_TARGET) \
+		--tag $(IMG_TARGET) \
 		--target $(DOCKER_TARGET) \
 		$(BUILD_ARGS) \
 		$(WORKING_DIR)
@@ -144,6 +156,12 @@ print.env:  ## Print current environment
 
 print.tag: ## Print current build tag
 	@echo $(TAG_BUILD)
+
+print.version: ## Print current version
+	@echo $(VERSION)
+
+print.version.latest: ## Print current version
+	@echo $(VERSION_LATEST)
 
 self.upgrade: ## Upgrade this instance of the Makefile
 	$(WGET_CMD) --unlink -q $(SCRIPT_SOURCE) -O Makefile
