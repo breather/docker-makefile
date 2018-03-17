@@ -17,7 +17,6 @@ TERRAFORM       ?= $(ASSUME) $(TERRAFORM_CMD)
 TERRAFORM_CMD   ?= terraform
 
 TF_CONFIG_DIR   ?= config
-TF_ENV          ?= use1dev
 TF_ENV_CURRENT   = $(shell cat .terraform/workspace 2> /dev/null || echo)
 TF_STATE_BUCKET ?= breather-use1prod-terraform
 TF_STATE_TABLE  ?= terraform
@@ -42,6 +41,12 @@ ifeq ($(shell which $(TERRAFORM_CMD)),)
 	$(info - OSX     brew install terraform)
 	$(info - Linux   visit https://www.terraform.io/downloads.html)
 	$(error Exiting)
+endif
+
+ifeq ($(strip $(TF_ENV_CURRENT)),)
+TF_ENV ?= use1dev
+else
+TF_ENV ?= $(TF_ENV_CURRENT)
 endif
 
 ifneq ($(TF_ENV_CURRENT),$(TF_ENV))
@@ -91,7 +96,7 @@ help:
 all: apply
 
 .PHONY: apply
-apply: plan ## Builds or changes infrastructure
+apply: .terraform/plan.$(TF_ENV) ## Builds or changes infrastructure
 	$(TERRAFORM) apply \
 	-parallelism=80 \
 	.terraform/plan.$(TF_ENV)
@@ -102,8 +107,7 @@ check: format validate ## Lints and validates terraform files
 
 .PHONY: clean
 clean: ## Cleans the working environment of temporary files
-	@rm -f .terraform/workspace
-	@rm -f .terraform/plan.*
+	rm -f .terraform/plan.*
 
 .PHONY: destroy
 destroy: ## Destroy Terraform-managed infrastructure
@@ -118,7 +122,7 @@ destroy: ## Destroy Terraform-managed infrastructure
 
 .PHONY: format
 format: ## Rewrites config files to canonical format
-	@$(TERRAFORM) fmt
+	$(TERRAFORM_CMD) fmt
 
 inspect.%: .FORCE # Inspects the value of variable within Makefile
 	@echo $($*)
@@ -135,7 +139,7 @@ output.%: ## Read an output from a state file
 	$(TERRAFORM) output -module=$*
 
 .PHONY: plan ## Generate and show an execution plan
-plan: clean update check .terraform/plan.$(TF_ENV)
+plan: clean .terraform/workspace update check .terraform/plan.$(TF_ENV)
 
 .PHONY: reset
 reset: clean ## Reset terraform temporary files
@@ -150,14 +154,16 @@ show.%: .FORCE ## Show a resource in the state
 
 .PHONY: update
 update: ## Download and install modules for the configuration
-	@$(TERRAFORM_CMD) get -update=true > /dev/null
+	$(TERRAFORM_CMD) get -update=true > /dev/null
 
 .PHONY: validate
 validate: ## Validates the Terraform files
-	@$(TERRAFORM_CMD) validate \
+	$(TERRAFORM_CMD) validate \
 	-var-file $(TF_CONFIG_DIR)/default.tfvars \
 	-var-file $(TF_CONFIG_DIR)/$(TF_ENV).tfvars
 
+.PHONY: workspace
+workspace: clean .terraform/workspace ## Switches the active workspace to TF_ENV
 
 .terraform/workspace: .terraform/space.$(TF_ENV)
 	@echo $(TF_ENV) > .terraform/workspace;
