@@ -25,4 +25,3 @@ export
 -include $(MAKE_INCLUDE)
 
 #  vim: set ft=make ts=2 sw=2 noet :
-

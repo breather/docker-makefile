@@ -1,11 +1,10 @@
-# Makefile config
-#
-.DEFAULT = help
-.PHONY: $(MAKEFILE_LIST)
-SHELL := '/bin/bash'
-SCRIPT_BASE   := https://raw.githubusercontent.com/breather/makefiles
-SCRIPT_SOURCE := $(SCRIPT_BASE)/master/docker/Makefile
-MAKEFILE_DIR  := $(dir $(realpath $(firstword $(MAKEFILE_LIST))))
+MAKEFILE_DIR    := $(dir $(realpath $(firstword $(MAKEFILE_LIST))))
+SHELL           := bash
+.SHELLFLAGS     := -eu -o pipefail -c
+.DEFAULT_GOAL   := help
+.DELETE_ON_ERROR:
+.SUFFIXES:
+
 
 # Include config file
 #
@@ -86,16 +85,22 @@ IMG_LATEST            ?= $(IMG):$(TAG_PREFIX)$(TAG_LATEST)
 
 # Targets
 #
-help: ## Show this help message.
-	$(info Docker image builder)
-	$(info )
-	@echo -e "$$(grep -hE '^\S+:.*##' $(MAKEFILE_LIST) | sed -e 's/:.*##\s*/:/' -e 's/^\(.\+\):\(.*\)/\\x1b[36m\1\\x1b[m:\2/' | column -c2 -t -s :)"
+.PHONY: help
+help:
+	@echo Docker image builder
+	@echo
+	@grep -hE '^[a-zA-Z_\-\.]+(.%)?:.*?## .*$$' $(MAKEFILE_LIST) | \
+    sort | \
+    awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
+.PHONY: exec
 exec: ## Assume an aws role and execute CMD="cmd args"
 	$(ASSUME_CMD) $(CMD)
 
+.PHONY: build
 build: build.target build.image ## Build docker container and optional target
 
+.PHONY: build.image
 build.image: ## Build docker container
 	cd $(WORKING_DIR); $(DOCKER_CMD) build \
 		$(foreach var,$(IMG_CACHE),--cache-from $(var)) \
@@ -111,6 +116,7 @@ build.image: ## Build docker container
 		$(BUILD_ARGS) \
 		$(WORKING_DIR)
 
+.PHONY: build.target
 build.target: ## Build docker target if defined
 ifdef DOCKER_TARGET
 	cd $(WORKING_DIR); $(DOCKER_CMD) build \
@@ -122,9 +128,11 @@ ifdef DOCKER_TARGET
 		$(WORKING_DIR)
 endif
 
+.PHONY: compose
 compose: ## Wrap docker-compose with assume-role, requires -e COMPOSE_FLAGS=""
 	$(ASSUME_CMD) $(COMPOSE_CMD)
 
+.PHONY: login
 login: ## Login to repository
 ifeq ($(DOCKER_NOLOGIN),)
 ifneq (,$(findstring amazonaws.com,$(ORG)))
@@ -134,34 +142,42 @@ else
 endif
 endif
 
+.PHONY: pull
 pull: login ## Pull tagged docker image from repository
 	$(DOCKER_CMD) pull $(PULL_FLAGS) $(IMG_TAGGED)
 
+.PHONY: push
 push: login ## Push tagged docker image to repository
 	$(DOCKER_CMD) push $(PUSH_FLAGS) $(IMG_TAGGED)
 
+.PHONY: push.latest
 push.latest:
 	$(DOCKER_CMD) push $(PUSH_FLAGS) $(IMG_LATEST)
 
+.PHONY: tag
 tag: ## Tag build image
 ifneq ($(IMG_BUILD),$(IMG_TAGGED))
 	$(DOCKER_CMD) tag $(IMG_BUILD) $(IMG_TAGGED)
 endif
 
+.PHONY: tag.latest
 tag.latest:
 	$(DOCKER_CMD) tag $(IMG_BUILD) $(IMG_LATEST)
 
+.PHONY: print.env
 print.env:  ## Print current environment
 	@env
 
+.PHONY: print.tag
 print.tag: ## Print current build tag
 	@echo $(TAG_BUILD)
 
+.PHONY: print.version
 print.version: ## Print current version
 	@echo $(VERSION)
 
+.PHONY: print.version.latest
 print.version.latest: ## Print current version
 	@echo $(VERSION_LATEST)
 
-self.upgrade: ## Upgrade this instance of the Makefile
-	$(WGET_CMD) --unlink -q $(SCRIPT_SOURCE) -O Makefile
+#  vim: set ft=make ts=2 sw=2 noet :
