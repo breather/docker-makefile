@@ -163,6 +163,15 @@ show.%: .terraform/environment
 show.%: .phony .vars
 	@$(TERRAFORM) state show $*
 
+taint.%: ## Schedule a resource for update (accepts module=xxx)
+taint.%: .terraform/environment
+taint.%: .phony .vars
+	@if [ -n "$(module)" ]; then \
+    $(TERRAFORM) taint -module=$(module) $*; \
+  else \
+    $(TERRAFORM) taint $*; \
+  fi
+
 update: ## Downloads and installs modules for the configuration
 update: .phony
 	@rm -rf .terraform/modules
