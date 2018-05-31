@@ -11,23 +11,21 @@ SHELL           := bash
 #
 # Default command definitions
 #
-ASSUME          ?= $(ASSUME_CMD) $(AWS_PROFILE)
-ASSUME_CMD      ?= assume-role
-
-TERRAFORM       ?= $(ASSUME) $(TERRAFORM_CMD)
+TERRAFORM       ?= $(TERRAFORM_CMD)
 TERRAFORM_CMD   ?= terraform
 
 #
 # Default internal variables
 #
-ERROR        ?= ""
+ERROR         ?= ""
 
-CONFIG_DIR   ?= config
+CONFIG_DIR    ?= config
 
-STATE_BUCKET ?= terraform
-STATE_TABLE  ?= terraform
-STATE_PREFIX ?= workspace
-STATE_REGION ?= us-east-1
+STATE_BUCKET  ?= terraform
+STATE_TABLE   ?= terraform
+STATE_PREFIX  ?= workspace
+STATE_PROFILE ?= $(AWS_PROFILE)
+STATE_REGION  ?= us-east-1
 #STATE_KEY    ?= # must be defined in variable or included file
 
 #
@@ -48,6 +46,12 @@ WORKSPACE     ?= $(shell cat .terraform/environment 2>/dev/null)
 ifeq ($(AWS_PROFILE),)
 AWS_PROFILE    = $(WORKSPACE)
 endif
+
+#
+# Terraform variables
+#
+TF_VAR_aws_profile := $(AWS_PROFILE)
+export TF_VAR_aws_profile
 
 #
 # Targets
@@ -259,6 +263,7 @@ make.update: .phony
     -backend-config="acl=private" \
     -backend-config="bucket=$(STATE_BUCKET)" \
     -backend-config="dynamodb_table=$(STATE_TABLE)" \
+    -backend-config="profile=$(STATE_PROFILE)" \
     -backend-config="key=$(STATE_KEY)" \
     -backend-config="region=$(STATE_REGION)" \
     -backend-config="workspace_key_prefix=$(STATE_PREFIX)" \
