@@ -40,8 +40,15 @@ MAKEFILE_SOURCE  := $(MAKEFILE_SOURCE)/terraform/Makefile
 #
 # Fallback variables
 #
-AWS_PROFILE   ?= $(shell cat .terraform/make/profile 2>/dev/null || echo)
-WORKSPACE     ?= $(shell cat .terraform/environment 2>/dev/null)
+ifdef WORKSPACE
+ifneq ($(WORKSPACE),$(shell cat .terraform/environment 2>/dev/null))
+$(shell rm -f .terraform/make/profile 2> /dev/null)
+$(shell rm -f .terraform/environment 2> /dev/null)
+endif
+endif
+
+AWS_PROFILE ?= $(shell cat .terraform/make/profile 2>/dev/null || echo)
+WORKSPACE   ?= $(shell cat .terraform/environment 2>/dev/null)
 
 ifeq ($(AWS_PROFILE),)
 AWS_PROFILE    = $(WORKSPACE)
@@ -219,6 +226,7 @@ make.update: .phony
 
 .terraform/make/profile: # Ensures the presence of the AWS_PROFILE config
 .terraform/make/profile: | .terraform/make
+	@echo Setting AWS_PROFILE to $(AWS_PROFILE)
 	@if [ ! -n "$(AWS_PROFILE)" ]; then \
     $(MAKE) help -e ERROR="AWS profile has not been defined"; \
     exit 1; \
@@ -253,8 +261,8 @@ make.update: .phony
     -var-file $(CONFIG_DIR)/$*.tfvars
 
 .terraform/environment: # Ensures that a workspace is active
-.terraform/environment: .terraform/make/workspace.$(WORKSPACE)
 .terraform/environment: | .vars
+.terraform/environment: .terraform/make/workspace.$(WORKSPACE)
 	$(TERRAFORM) workspace select $(WORKSPACE);
 
 .terraform/terraform.tfstate: # Ensures that remote state was initialized
