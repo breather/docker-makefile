@@ -38,7 +38,7 @@ MAKEFILE_SOURCE  := $(MAKEFILE_SOURCE)/makefiles/$(MAKEFILE_VERSION)
 MAKEFILE_SOURCE  := $(MAKEFILE_SOURCE)/terraform/Makefile
 
 #
-# Fallback variables
+# Workspace / Aws profile changes
 #
 ifdef WORKSPACE
 ifneq ($(WORKSPACE),$(shell cat .terraform/environment 2>/dev/null))
@@ -47,6 +47,15 @@ $(shell rm -f .terraform/environment 2> /dev/null)
 endif
 endif
 
+ifdef AWS_PROFILE
+ifneq ($(AWS_PROFILE),$(shell cat .terraform/make/profile 2>/dev/null))
+$(shell rm .terraform/terraform.tfstate)
+endif
+endif
+
+#
+# Fallback variables
+#
 AWS_PROFILE ?= $(shell cat .terraform/make/profile 2>/dev/null || echo)
 WORKSPACE   ?= $(shell cat .terraform/environment 2>/dev/null)
 

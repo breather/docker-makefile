@@ -37,8 +37,9 @@ AWS_PROFILE           ?= default
 # -- Defined in the Build environment variables
 BRANCH                ?= $(CIRCLE_BRANCH)
 BUILD                 ?= $(CIRCLE_BUILD_NUM)
+MESSAGE               ?= $(shell printf '%q' "$$(git --no-pager log --pretty=format:'%s' -1 | sed -e "s@'@\"@g")")
 REPO_URL              ?= $(CIRCLE_REPOSITORY_URL)
-REVISION              ?= $(CIRCLE_SHA1)
+REVISION              ?= $(shell git --no-pager log --pretty=format:'%h' -1)
 
 # -- Defined in the Build version variables
 #VERSION               ?= $(VERSION)
@@ -81,7 +82,7 @@ CIRCLE_SHA1           ?= $(shell git rev-parse HEAD)
 VERSION_FILE          ?= $(WORKDIR)/VERSION
 
 ifneq ($(wildcard $(VERSION_FILE)),)
-  VERSION             ?= $(shell cat $(VERSION_FILE))-$(CIRCLE_BUILD_NUM)
+  VERSION             ?= $(shell cat $(VERSION_FILE))
 endif
 
 ifneq ($(wildcard $(WORKDIR)/package.json),)
@@ -132,7 +133,8 @@ help:
 	@echo Variables
 	@printf "\033[36m%-20s\033[0m %s\n" ORG "$(ORG)"
 	@printf "\033[36m%-20s\033[0m %s\n" NAME "$(NAME)"
-	@printf "\033[36m%-20s\033[0m %s\n" VERSION "$(VERSION)"
+	@printf "\033[36m%-20s\033[0m %s\n" MESSAGE "$(MESSAGE)"
+	@printf "\033[36m%-20s\033[0m %s\n" VERSION "$(VERSION)-$(BUILD)"
 	@printf "\033[36m%-20s\033[0m %s\n" PREFIX "$(PREFIX)"
 	@echo
 	@printf "\033[36m%-20s\033[0m %s\n" BUILD_TAG "$(BUILD_TAG)"
@@ -157,11 +159,12 @@ build.image: .phony ## Build docker image
   --file $(DOCKER_FILE) \
   --label maintainer=$(MAINTAINER) \
   --label org.label-schema.build-date=$(BUILD_DATE) \
+  --label org.label-schema.description=$(MESSAGE) \
   --label org.label-schema.name=$(NAME) \
-  --label org.label-schema.vcs-ref=$(CIRCLE_SHA1) \
-  --label org.label-schema.vcs-url=$(CIRCLE_REPOSITORY_URL) \
-  --label org.label-schema.vcs-branch=$(CIRCLE_BRANCH) \
-  --label org.label-schema.version=$(VERSION) \
+  --label org.label-schema.vcs-ref=$(REVISION) \
+  --label org.label-schema.vcs-url=$(REPO_URL) \
+  --label org.label-schema.vcs-branch=$(BRANCH) \
+  --label org.label-schema.version=$(VERSION)-$(BUILD) \
   --tag $(IMAGE):$(BUILD_TAG) \
   $(BUILD_ARGS) \
   $(addprefix --cache-from ,$(CACHE_IMAGES)) \
