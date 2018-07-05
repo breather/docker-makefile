@@ -39,7 +39,8 @@ BRANCH                ?= $(CIRCLE_BRANCH)
 BUILD                 ?= $(CIRCLE_BUILD_NUM)
 MESSAGE               ?= $(shell printf '%q' "$$(git --no-pager log --pretty=format:'%s' -1 | sed -e "s@'@\"@g")")
 REPO_URL              ?= $(CIRCLE_REPOSITORY_URL)
-REVISION              ?= $(shell git --no-pager log --pretty=format:'%h' -1)
+REVISION              ?= $(shell git --no-pager log -1 --abbrev=10 \
+                                     --pretty=format:'%h')
 
 # -- Defined in the Build version variables
 #VERSION               ?= $(VERSION)
