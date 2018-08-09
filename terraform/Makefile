@@ -6,7 +6,6 @@ SHELL           := bash
 .SUFFIXES:
 
 -include $(PWD)/Makefile.local
--include $(PWD)/.*.mk
 
 #
 # Default command definitions
@@ -38,7 +37,7 @@ MAKEFILE_SOURCE  := $(MAKEFILE_SOURCE)/makefiles/$(MAKEFILE_VERSION)
 MAKEFILE_SOURCE  := $(MAKEFILE_SOURCE)/terraform/Makefile
 
 #
-# Workspace / Aws profile changes
+# Fallback variables
 #
 ifdef WORKSPACE
 ifneq ($(WORKSPACE),$(shell cat .terraform/environment 2>/dev/null))
@@ -47,15 +46,6 @@ $(shell rm -f .terraform/environment 2> /dev/null)
 endif
 endif
 
-ifdef AWS_PROFILE
-ifneq ($(AWS_PROFILE),$(shell cat .terraform/make/profile 2>/dev/null))
-$(shell rm .terraform/terraform.tfstate)
-endif
-endif
-
-#
-# Fallback variables
-#
 AWS_PROFILE ?= $(shell cat .terraform/make/profile 2>/dev/null || echo)
 WORKSPACE   ?= $(shell cat .terraform/environment 2>/dev/null)
 
@@ -101,7 +91,8 @@ help:
 .phony:
 
 apply: ## Applies a terraform execution plan
-apply: .phony .vars .terraform/make/plan.$(WORKSPACE)
+apply: | .phony .vars.WORKSPACE
+apply: .terraform/make/plan.$(WORKSPACE)
 apply:
 	$(TERRAFORM) apply \
     -parallelism=80 \
@@ -109,7 +100,8 @@ apply:
 	@$(MAKE) .clean.plan
 
 check: ## Lints and validates terraform files
-check: .phony format validate
+check: | .phony
+check: format validate
 
 clean: ## Cleans the working environment of temporary files
 clean: .phony
@@ -137,27 +129,29 @@ format: .phony
 	$(TERRAFORM_CMD) fmt
 
 init: ## Initializes the terraform state
-init: .phony reset \
-      .terraform/make/profile \
+init: | .phony reset
+init: .terraform/make/profile \
       .terraform/terraform.tfstate \
       .terraform/environment
 
 init.%: ## Initializes a workspace
-init.%: .phony \
-  .terraform/make/profile \
-  .terraform/terraform.tfstate
+init.%: | .phony
+init.%: .terraform/make/profile .terraform/terraform.tfstate
 	$(TERRAFORM) workspace new $*
 
 list: ## Lists resource identifiers from the state file
-list: .phony .terraform/terraform.tfstate .terraform/environment
+list: | .phony
+list: .terraform/terraform.tfstate .terraform/environment
 	$(TERRAFORM) state list
 
 output: ## Displays all outputs in the state file
-output: .phony .terraform/terraform.tfstate .terraform/environment
+output: | .phony
+output: .terraform/terraform.tfstate .terraform/environment
 	$(TERRAFORM) output
 
 output.%: ## Displays all outputs in the state file for a module
-output.%: .phony .terraform/terraform.tfstate .terraform/environment
+output.%: | .phony
+output.%: .terraform/terraform.tfstate .terraform/environment
 	$(TERRAFORM) output -module=$*
 
 plan: ## Generates and shows an execution plan
@@ -165,7 +159,7 @@ plan: | .phony .clean.plan
 plan: update format validate .terraform/make/plan.$(WORKSPACE)
 
 refresh: ## Update local state file against real resources
-refresh: .phony .terraform/terraform.tfstate .terraform/environment
+refresh: .terraform/terraform.tfstate .terraform/environment .phony
 	$(TERRAFORM) refresh \
     -var-file $(CONFIG_DIR)/default.tfvars \
     -var-file $(CONFIG_DIR)/$(WORKSPACE).tfvars
@@ -175,17 +169,17 @@ reset: .phony clean
 	rm -fr .terraform
 
 show: ## Inspects terraform plan
-show: .phony .vars
+show: .vars
 	@$(TERRAFORM_CMD) show .terraform/make/plan.$(WORKSPACE)
 
 show.%: ## Shows a resource in the state
 show.%: .terraform/environment
-show.%: .phony .vars
+show.%: .vars
 	@$(TERRAFORM) state show $*
 
 taint.%: ## Schedule a resource for update (accepts module=xxx)
 taint.%: .terraform/environment
-taint.%: .phony .vars
+taint.%: .phony
 	@if [ -n "$(module)" ]; then \
     $(TERRAFORM) taint -module=$(module) $*; \
   else \
@@ -199,7 +193,7 @@ update: .phony
 
 validate: ## Validates the terraform files
 validate: .terraform/terraform.tfstate
-validate: | .phony .vars
+validate: .vars
 	$(TERRAFORM_CMD) validate \
 	-var-file $(CONFIG_DIR)/default.tfvars \
 	-var-file $(CONFIG_DIR)/$(WORKSPACE).tfvars
@@ -215,14 +209,12 @@ make.update: .phony
 # Interal / Prival targets
 #
 .vars: # Enforce the present of certain variables
-.vars: .phony
-	@if [ ! -n "$(WORKSPACE)" ]; then \
-    $(MAKE) help -e ERROR="Workspace was not provided"; \
-    exit 1; \
-  fi
-	@if [ ! -n "$(STATE_KEY)" ]; then \
-    $(MAKE) help - ERROR="The STATE_KEY was not provided"; \
-    exit 1; \
+.vars: .vars.WORKSPACE .vars.STATE_KEY
+
+.vars.%: .phony
+	@if [ ! -n "$($*)" ]; then \
+     echo "Variable $* is not defined"; \
+     exit 1; \
   fi
 
 .clean.plan: # Cleans only the plan files
@@ -234,30 +226,8 @@ make.update: .phony
 	mkdir -p .terraform/make
 
 .terraform/make/profile: # Ensures the presence of the AWS_PROFILE config
-.terraform/make/profile: | .terraform/make
-	@echo Setting AWS_PROFILE to $(AWS_PROFILE)
-	@if [ ! -n "$(AWS_PROFILE)" ]; then \
-    $(MAKE) help -e ERROR="AWS profile has not been defined"; \
-    exit 1; \
-  fi
-	@if ! grep -q "$(AWS_PROFILE)" ~/.aws/config; then \
-    $(MAKE) help -e ERROR="Invalid AWS profile"; \
-    exit 1; \
-  fi
-	echo "$(AWS_PROFILE)" > .terraform/make/profile
-
-.terraform/make/workspace.%: # Ensures the workspace is valid
-.terraform/make/workspace.%: .terraform/terraform.tfstate
-.terraform/make/workspace.%: | .terraform/make
-	@if [ ! -n "$*" ]; then \
-    $(MAKE) help -e ERROR="Workspace was not provided"; \
-    exit 1; \
-  fi
-	@if ! $(TERRAFORM) workspace list | grep -q '$*$$'; then \
-    $(MAKE) help -e ERROR="Workspace does not exist"; \
-    exit 1; \
-  fi
-	@touch .terraform/make/workspace.$*
+.terraform/make/profile: .terraform/make
+	@echo "$(AWS_PROFILE)" > .terraform/make/profile
 
 .terraform/make/plan.%: # Generates a plan file to apply against
 .terraform/make/plan.%: .terraform/environment
@@ -271,11 +241,10 @@ make.update: .phony
 
 .terraform/environment: # Ensures that a workspace is active
 .terraform/environment: | .vars
-.terraform/environment: .terraform/make/workspace.$(WORKSPACE)
-	$(TERRAFORM) workspace select $(WORKSPACE);
+	$(TERRAFORM) workspace select $(WORKSPACE)
 
 .terraform/terraform.tfstate: # Ensures that remote state was initialized
-.terraform/terraform.tfstate: | .terraform/make .terraform/make/profile
+.terraform/terraform.tfstate: | .vars .terraform/make/profile
 	$(TERRAFORM) init \
     -backend-config="acl=private" \
     -backend-config="bucket=$(STATE_BUCKET)" \
